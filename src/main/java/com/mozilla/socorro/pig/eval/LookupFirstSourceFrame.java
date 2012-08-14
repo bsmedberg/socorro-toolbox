@@ -33,9 +33,41 @@ import org.apache.pig.impl.logicalLayer.schema.SchemaUtil;
 
 public class LookupFirstSourceFrame extends EvalFunc<String> {
 
+    // These are copied from socorro:socorro/processor/signature_utilities.py
+    private static final Pattern fixupSpace = Pattern.compile(" (?=[\\*&,])");
+    private static final Pattern fixupComma = Pattern.compile(",(?! )");
+    private static final Pattern fixupInteger = Pattern.compile("(<|, )(\\d+)([uUlL]?)([^\\w])");
+    private static final Pattern fixupSingleQuote = Pattern.compile("'");
+
+    private static String fixupFunction(String sig) {
+        sig = fixupSpace.matcher(sig).replaceAll("");
+        sig = fixupComma.matcher(sig).replaceAll(", ");
+        sig = fixupInteger.matcher(sig).replaceAll("$1int$4");
+        sig = fixupSingleQuote.matcher(sig).replaceAll("''");
+        return sig;
+    }
+
+    private static final Pattern stripLastSlashes = Pattern.compile("[\\\\/]$");
+    private static final Pattern slashes = Pattern.compile("[\\\\/]");
+
+    private static String getSignature(String module, String function, String srcfile, String line, String offset) {
+        if (function.length() != 0) {
+            return fixupFunction(function);
+        }
+        if (srcfile.length() != 0 && line.length() != 0) {
+            srcfile = stripLastSlashes.matcher(srcfile).replaceAll("");
+            String[] splits = slashes.split(srcfile, -1);
+            if (splits.length != 0) {
+                String filename = splits[splits.length - 1];
+                return filename + "#" + line;
+            }
+        }
+        return module + "@" + offset;
+    }
+
     private static final Pattern newlinePattern = Pattern.compile("\n");
     private static final Pattern pipePattern = Pattern.compile("\\|");
-    
+
     public String exec(Tuple input) throws IOException {
         if (input == null || input.size() != 2) {
             return null;
@@ -68,7 +100,7 @@ public class LookupFirstSourceFrame extends EvalFunc<String> {
             }
 
             if (splits[4].length() != 0) {
-                return splits[3];
+                return getSignature(splits[2], splits[3], splits[4], splits[5], splits[6]);
             }
         }
 
